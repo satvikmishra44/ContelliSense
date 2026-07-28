@@ -1,9 +1,16 @@
 from typing import Optional
 
-from pydantic import BaseSettings, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AppSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+    )
+
     app_env: str = Field("local", alias="APP_ENV")
     app_name: str = Field("ContelliSense Lite", alias="APP_NAME")
     app_log_level: str = Field("INFO", alias="APP_LOG_LEVEL")
@@ -24,11 +31,6 @@ class AppSettings(BaseSettings):
     )
 
     youtube_api_key: Optional[str] = Field(None, alias="YOUTUBE_API_KEY")
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
 
 
 settings = AppSettings()

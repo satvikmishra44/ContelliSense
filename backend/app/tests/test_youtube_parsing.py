@@ -11,7 +11,7 @@ from app.utils.youtube_parsing import parse_channel_url
 def test_parse_channel_url_handle():
     cid, handle, username = parse_channel_url("https://www.youtube.com/@ChandrKathaByJyoti")
     assert cid is None
-    assert handle == "@myhandle"
+    assert handle == "@ChandrKathaByJyoti"
     assert username is None
 
 
