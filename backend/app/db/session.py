@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from app.core.config import settings
 
 # Using sync for v1, would switch to async once app is completed.
-engine = create_engine(settings.db_url, future=True)
+engine = create_engine(settings.db_url, future=True, echo=False)
 
 SessionLocal = sessionmaker(
     autocommit=False,

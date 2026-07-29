@@ -1,23 +1,25 @@
+import faulthandler
+import time
 import uuid
-from typing import TypedDict, List
+from typing import List, TypedDict
 
 from sqlalchemy.orm import Session
-from typing_extensions import Annotated
 
-from langgraph.graph import StateGraph
+from app.core.logging_config import get_logger
 from app.db.models.analysis import Analysis
 from app.db.models.channel import Channel
 from app.schemas.analysis import AnalysisCreateResponse
 from app.schemas.channel import ChannelOverviewResponse
 from app.schemas.recommendation import RecommendationResponse
 from app.schemas.trend import TrendSignalResponse
-from app.services.youtube.channel_analyzer import ChannelAnalyzer
-from app.services.trends.google_trends_service import GoogleTrendsService
-from app.services.rag.rag_service import RagService
 from app.services.ai.gemini_client import GeminiClient
 from app.services.ai.recommendation_engine import RecommendationEngine
-from app.core.config import settings
+from app.services.rag.rag_service import RagService
+from app.services.trends.google_trends_service import GoogleTrendsService
+from app.services.youtube.channel_analyzer import ChannelAnalyzer
 from app.utils.youtube_parsing import parse_channel_url
+
+logger = get_logger("app.services.ai.reasoning_graph")
 
 
 class ReasoningState(TypedDict):
@@ -31,103 +33,190 @@ class ReasoningState(TypedDict):
 
 class ReasoningOrchestrator:
     """
-    LangGraph-based orchestrator for the full analysis workflow.
+    Coordinates the full end-to-end analysis workflow.
 
-    Nodes:
-      - analyze_channel
-      - collect_trends
-      - build_rag_context
-      - call_gemini
-      - parse_and_persist_recommendations
+    Design rule:
+    Trend enrichment is useful but non-critical. If pytrends fails, the pipeline
+    should continue with empty trend signals instead of returning HTTP 500.
     """
 
     def __init__(self, db: Session) -> None:
         self.db = db
-        self.graph = self._build_graph()
-
-    def _build_graph(self) -> StateGraph:
-        workflow = StateGraph(ReasoningState)
-
-        def analyze_channel_node(state: ReasoningState) -> ReasoningState:
-            channel_url = state.get("channel_overview")  # placeholder
-            # In practice, we pass URL via input; for simplicity we keep state driver outside.
-            return state
-
-        # For now, we'll keep graph minimal: we drive nodes in Python methods; graph helps structure.
-        # A full LangGraph integration could annotate reducers and context schema, as docs show. [web:81][web:93]
-        return workflow
 
     def run_full_analysis(self, channel_url: str) -> AnalysisCreateResponse:
-        # Step 1: parse and analyze channel
-        analyzer = ChannelAnalyzer(db=self.db)
-        # parse_channel_url is already done at API layer, but here we can re-use raw URL if needed.
-        # For brevity, we ask analyzer to resolve channel_id internally.
-        # In a more precise build, you'd pass channel_id/handle/username as inputs.
+        request_start = time.perf_counter()
+        logger.info("Full analysis started | channel_url=%s", channel_url)
 
-        channel_id, handle, username = parse_channel_url(channel_url=channel_url)
-        channel_overview = analyzer.analyze_channel(
-            channel_id=channel_id,
-            handle=handle,
-            username=username,
-            raw_url=channel_url,
-        )
+        faulthandler.dump_traceback_later(120, repeat=True)
 
-        # Persist analysis entity
-        query = self.db.query(Channel)
+        try:
+            # Step 1: Parse channel URL.
+            parsed_channel_id, parsed_handle, parsed_username = parse_channel_url(channel_url)
+            logger.info(
+                "Parsed channel URL | raw_url=%s channel_id=%s handle=%s username=%s",
+                channel_url,
+                parsed_channel_id,
+                parsed_handle,
+                parsed_username,
+            )
 
-        if channel_overview.channel_id:
-            channel_entity = query.filter(Channel.channel_id == channel_overview.channel_id).first()
-        elif channel_overview.handle:
-            channel_entity = query.filter(Channel.handle == channel_overview.handle).first()
-        elif channel_overview.username:
-            channel_entity = query.filter(Channel.username == channel_overview.username).first()
-        else:
-            channel_entity = query.filter(Channel.url == channel_overview.url).first()
+            # Step 2: Channel analysis.
+            step_start = time.perf_counter()
+            logger.info("STEP 1 START | channel analysis")
 
-        if channel_entity is None:
-            raise ValueError("Channel not found after analysis")
+            analyzer = ChannelAnalyzer(db=self.db)
+            channel_overview = analyzer.analyze_channel(
+                channel_id=parsed_channel_id,
+                handle=parsed_handle,
+                username=parsed_username,
+                raw_url=channel_url,
+            )
 
-        analysis_uuid = uuid.uuid4().hex
-        analysis = Analysis(
-            channel_id=channel_entity.id,
-            analysis_uuid=analysis_uuid,
-            summary="Auto-generated analysis summary placeholder",
-        )
-        self.db.add(analysis)
-        self.db.commit()
-        self.db.refresh(analysis)
+            logger.info(
+                "STEP 1 END | channel analysis complete | channel_id=%s duration_ms=%s",
+                channel_overview.channel_id,
+                round((time.perf_counter() - step_start) * 1000, 2),
+            )
 
-        # Step 2: collect trends
-        trends_service = GoogleTrendsService()
-        trends = trends_service.fetch_trends(keyword=channel_entity.handle or "youtube", region="")
+            # Step 3: Persist analysis entity.
+            step_start = time.perf_counter()
+            logger.info("STEP 2 START | persist analysis entity")
 
-        # Step 3: build RAG context
-        rag_service = RagService(db=self.db, index_name=f"analysis-{analysis_uuid}")
-        rag_service.build_context_for_channel(channel_id=channel_entity.id)
-        rag_context = rag_service.retrieve_context(query="content opportunities and viral ideas", k=50)
+            channel_entity = (
+                self.db.query(Channel)
+                .filter(Channel.channel_id == channel_overview.channel_id)
+                .first()
+            )
 
-        # Step 4: call Gemini
-        gemini_client = GeminiClient()
-        prompt = (
-            "Given this creator's history and current trends, propose high-probability future video ideas.\n"
-            "Focus on content gaps, trend alignment, audience interests, and seasonality. "
-            "Explain why each idea should work and how it leverages evidence."
-        )
-        raw_text = gemini_client.generate_recommendations(
-            prompt=prompt,
-            context_chunks=rag_context,
-            max_ideas=10,
-        )
+            if channel_entity is None and not channel_overview.channel_id:
+                channel_entity = (
+                    self.db.query(Channel)
+                    .filter(Channel.url == channel_url)
+                    .first()
+                )
 
-        # Step 5: parse + persist recommendations
-        rec_engine = RecommendationEngine(db=self.db)
-        recs = rec_engine.persist_and_format(analysis=analysis, raw_text=raw_text)
+            if channel_entity is None:
+                raise ValueError("Channel not found after analysis")
 
-        # Assemble DTO
-        return AnalysisCreateResponse(
-            analysis_uuid=analysis_uuid,
-            channel=channel_overview,
-            trends=trends,
-            recommendations=recs,
-            report_download_path=None,
-        )
+            analysis_uuid = uuid.uuid4().hex
+            analysis = Analysis(
+                channel_id=channel_entity.id,
+                analysis_uuid=analysis_uuid,
+                summary="Auto-generated analysis summary placeholder",
+            )
+            self.db.add(analysis)
+            self.db.commit()
+            self.db.refresh(analysis)
+
+            logger.info(
+                "STEP 2 END | analysis persisted | analysis_uuid=%s duration_ms=%s",
+                analysis_uuid,
+                round((time.perf_counter() - step_start) * 1000, 2),
+            )
+
+            # Step 4: Trend collection - graceful degradation.
+            step_start = time.perf_counter()
+            logger.info("STEP 3 START | trend collection")
+
+            trend_keyword = (
+                channel_entity.handle.lstrip("@")
+                if channel_entity.handle
+                else (channel_entity.username or "youtube")
+            )
+
+            trends_service = GoogleTrendsService()
+            try:
+                trends = trends_service.fetch_trends(
+                    keyword=trend_keyword,
+                    region="IN",
+                )
+            except Exception:
+                logger.exception(
+                    "Trend collection hard-failed; continuing with empty trends | keyword=%s",
+                    trend_keyword,
+                )
+                trends = []
+
+            logger.info(
+                "STEP 3 END | trend collection complete | trend_count=%s duration_ms=%s",
+                len(trends),
+                round((time.perf_counter() - step_start) * 1000, 2),
+            )
+
+            # Step 5: Build RAG context.
+            step_start = time.perf_counter()
+            logger.info("STEP 4 START | rag context build")
+
+            rag_service = RagService(db=self.db, index_name=f"analysis-{analysis_uuid}")
+            rag_service.build_context_for_channel(channel_id=channel_entity.id)
+            rag_context = rag_service.retrieve_context(
+                query="content opportunities and viral ideas",
+                k=50,
+            )
+
+            logger.info(
+                "STEP 4 END | rag context ready | context_count=%s duration_ms=%s",
+                len(rag_context),
+                round((time.perf_counter() - step_start) * 1000, 2),
+            )
+
+            # Step 6: Gemini generation.
+            step_start = time.perf_counter()
+            logger.info("STEP 5 START | gemini recommendation generation")
+
+            gemini_client = GeminiClient()
+            prompt = (
+                "Given this creator's history and current trends, propose high-probability "
+                "future video ideas. Focus on content gaps, trend alignment, audience "
+                "interests, and seasonality. Explain why each idea should work and how it "
+                "leverages evidence. If trend data is weak or missing, rely more heavily "
+                "on channel history, audience continuity, format patterns, and evergreen potential."
+            )
+            raw_text = gemini_client.generate_recommendations(
+                prompt=prompt,
+                context_chunks=rag_context,
+                max_ideas=10,
+            )
+
+            logger.info(
+                "STEP 5 END | gemini response received | chars=%s duration_ms=%s",
+                len(raw_text) if raw_text else 0,
+                round((time.perf_counter() - step_start) * 1000, 2),
+            )
+
+            # Step 7: Parse and persist recommendations.
+            step_start = time.perf_counter()
+            logger.info("STEP 6 START | persist recommendations")
+
+            rec_engine = RecommendationEngine(db=self.db)
+            recs = rec_engine.persist_and_format(
+                analysis=analysis,
+                raw_text=raw_text,
+            )
+
+            logger.info(
+                "STEP 6 END | recommendations persisted | recommendation_count=%s duration_ms=%s",
+                len(recs),
+                round((time.perf_counter() - step_start) * 1000, 2),
+            )
+
+            total_duration = round((time.perf_counter() - request_start) * 1000, 2)
+            logger.info(
+                "Full analysis completed | analysis_uuid=%s total_duration_ms=%s",
+                analysis_uuid,
+                total_duration,
+            )
+
+            return AnalysisCreateResponse(
+                analysis_uuid=analysis_uuid,
+                channel=channel_overview,
+                trends=trends,
+                recommendations=recs,
+                report_download_path=None,
+            )
+
+        except Exception:
+            logger.exception("Full analysis failed | channel_url=%s", channel_url)
+            raise
+        finally:
+            faulthandler.cancel_dump_traceback_later()

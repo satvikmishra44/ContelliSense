@@ -4,6 +4,11 @@ from google import genai
 
 from app.core.config import settings
 
+import time
+from app.core.logging_config import get_logger
+
+logger = get_logger("app.services.ai.gemini_client")
+
 
 class GeminiClient:
     """
@@ -11,6 +16,7 @@ class GeminiClient:
     """
 
     def __init__(self) -> None:
+        logger.info("Initializing Gemini client | model=%s", settings.gemini_model)
         self.client = genai.Client(api_key=settings.gemini_api_key)
         self.model_name = settings.gemini_model
 
@@ -20,9 +26,14 @@ class GeminiClient:
         context_chunks: List[str],
         max_ideas: int = 10,
     ) -> str:
-        """
-        Calls Gemini with a structured prompt and RAG context.
-        """
+        start = time.perf_counter()
+        logger.info(
+            "Gemini generation started | model=%s context_chunks=%s max_ideas=%s",
+            self.model_name,
+            len(context_chunks),
+            max_ideas,
+        )
+
         context = "\n\n".join(context_chunks[:50])
         full_input = (
             "You are an AI strategist for YouTube creators.\n"
@@ -42,4 +53,12 @@ class GeminiClient:
             model=self.model_name,
             input=full_input,
         )
-        return interaction.output_text
+
+        output_text = interaction.output_text
+
+        logger.info(
+            "Gemini generation completed | chars=%s duration_ms=%s",
+            len(output_text) if output_text else 0,
+            round((time.perf_counter() - start) * 1000, 2),
+        )
+        return output_text

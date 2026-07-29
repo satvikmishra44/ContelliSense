@@ -7,6 +7,11 @@ from app.db.models.analysis import Analysis
 from app.db.models.recommendation import Recommendation
 from app.schemas.recommendation import RecommendationResponse
 
+import time
+from app.core.logging_config import get_logger
+
+logger = get_logger("app.services.ai.recommendation_engine")
+
 
 class RecommendationEngine:
     """
@@ -22,10 +27,13 @@ class RecommendationEngine:
         raw_text: str,
     ) -> List[RecommendationResponse]:
         # Try to extract JSON from model output.
+        start = time.perf_counter()
+        logger.info("Recommendation parsing started | analysis_id=%s", analysis.id)
         try:
             data = json.loads(raw_text)
         except json.JSONDecodeError:
             # Fallback: very simple extraction or empty list.
+            logger.exception("Recommendation parsing failed | invalid JSON from model")
             return []
 
         recommendations: List[RecommendationResponse] = []
@@ -73,4 +81,9 @@ class RecommendationEngine:
             )
 
         self.db.commit()
+        logger.info(
+            "Recommendation parsing completed | count=%s duration_ms=%s",
+            len(recommendations),
+            round((time.perf_counter() - start) * 1000, 2),
+        )
         return recommendations
