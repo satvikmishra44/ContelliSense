@@ -302,11 +302,13 @@ class ChannelAnalyzer:
         fetch_start = time.perf_counter()
         logger.info("Fetching channel videos from Scrapetube")
 
-        videos_raw = self.client.list_channel_videos(
-            channel_id=channel.channel_id or None,
-            channel_url=raw_url if not channel.channel_id else None,
-            channel_username=username if (not channel.channel_id and username) else None,
-            limit=100,
+        videos_raw = asyncio.run(
+            self.client.list_channel_videos_api_first(
+                channel_id=channel.channel_id or None,
+                channel_url=raw_url if not channel.channel_id else None,
+                channel_username=username if (not channel.channel_id and username) else None,
+                limit=100,
+            )
         )
 
         logger.info(

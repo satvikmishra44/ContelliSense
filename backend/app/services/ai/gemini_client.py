@@ -1,64 +1,68 @@
-from typing import List
-
 from google import genai
+from google.genai import types
 
 from app.core.config import settings
-
-import time
 from app.core.logging_config import get_logger
 
 logger = get_logger("app.services.ai.gemini_client")
 
 
 class GeminiClient:
-    """
-    Minimal wrapper around Google GenAI SDK for text reasoning.
-    """
-
     def __init__(self) -> None:
-        logger.info("Initializing Gemini client | model=%s", settings.gemini_model)
-        self.client = genai.Client(api_key=settings.gemini_api_key)
-        self.model_name = settings.gemini_model
+        if not settings.gemini_api_key:
+            raise RuntimeError("Gemini API key is not configured")
+
+        self.model_name = settings.gemini_model or "gemini-3.5-flash-lite"
+        self.client = genai.Client(
+            api_key=settings.gemini_api_key,
+            http_options={"timeout": 60_000},
+        )
+
+    def _recommendation_schema(self) -> dict:
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "hook": {"type": "string"},
+                    "why_it_should_work": {"type": "string"},
+                    "virality_score": {"type": "number"},
+                    "confidence_score": {"type": "number"},
+                },
+                "required": ["title", "summary"],
+            },
+        }
 
     def generate_recommendations(
         self,
         prompt: str,
-        context_chunks: List[str],
+        context_chunks: list[str],
         max_ideas: int = 10,
     ) -> str:
-        start = time.perf_counter()
-        logger.info(
-            "Gemini generation started | model=%s context_chunks=%s max_ideas=%s",
-            self.model_name,
-            len(context_chunks),
-            max_ideas,
+        trimmed_context = context_chunks[:12]
+        context = "\n\n".join(trimmed_context) if trimmed_context else ""
+
+        full_prompt = (
+            "Return only a valid JSON array.\n"
+            "No markdown, no explanation, no code fences.\n\n"
+            f"Context:\n{context if context else 'No context available.'}\n\n"
+            f"Task:\n{prompt}\n\n"
+            f"Return at most {max_ideas} items."
         )
 
-        context = "\n\n".join(context_chunks[:50])
-        full_input = (
-            "You are an AI strategist for YouTube creators.\n"
-            "You must read the following evidence and then propose high-probability viral video ideas.\n\n"
-            "EVIDENCE:\n"
-            f"{context}\n\n"
-            "TASK:\n"
-            f"{prompt}\n\n"
-            f"Return up to {max_ideas} ideas as JSON with fields: "
-            "title, hook, thumbnail_idea, summary, target_audience, why_it_should_work, "
-            "supporting_evidence, trend_explanation, risk_factors, estimated_effort, "
-            "expected_ctr, search_potential, virality_score, confidence_score, "
-            "hit_probability, publishing_window."
-        )
-
-        interaction = self.client.interactions.create(
+        response = self.client.models.generate_content(
             model=self.model_name,
-            input=full_input,
+            contents=full_prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.4,
+                response_mime_type="application/json",
+                response_schema=self._recommendation_schema(),
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True
+                ),
+            ),
         )
 
-        output_text = interaction.output_text
-
-        logger.info(
-            "Gemini generation completed | chars=%s duration_ms=%s",
-            len(output_text) if output_text else 0,
-            round((time.perf_counter() - start) * 1000, 2),
-        )
-        return output_text
+        return response.text or "[]"

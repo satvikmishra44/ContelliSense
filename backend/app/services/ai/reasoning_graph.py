@@ -162,7 +162,7 @@ class ReasoningOrchestrator:
 
             # Step 6: Gemini generation.
             step_start = time.perf_counter()
-            logger.info("STEP 5 START | gemini recommendation generation")
+            logger.info("STEP 6 START | gemini recommendation generation")
 
             gemini_client = GeminiClient()
             prompt = (
@@ -172,18 +172,22 @@ class ReasoningOrchestrator:
                 "leverages evidence. If trend data is weak or missing, rely more heavily "
                 "on channel history, audience continuity, format patterns, and evergreen potential."
             )
-            raw_text = gemini_client.generate_recommendations(
-                prompt=prompt,
-                context_chunks=rag_context,
-                max_ideas=10,
-            )
+
+            try:
+                raw_text = gemini_client.generate_recommendations(
+                    prompt=prompt,
+                    context_chunks=rag_context,
+                    max_ideas=10,
+                )
+            except Exception:
+                logger.exception("Gemini generation failed; continuing with empty recommendations")
+                raw_text = "[]"
 
             logger.info(
-                "STEP 5 END | gemini response received | chars=%s duration_ms=%s",
+                "STEP 6 END | gemini response received | chars=%s duration_ms=%s",
                 len(raw_text) if raw_text else 0,
                 round((time.perf_counter() - step_start) * 1000, 2),
             )
-
             # Step 7: Parse and persist recommendations.
             step_start = time.perf_counter()
             logger.info("STEP 6 START | persist recommendations")
