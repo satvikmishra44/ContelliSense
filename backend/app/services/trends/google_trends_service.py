@@ -9,7 +9,7 @@ class GoogleTrendsService:
     def __init__(self) -> None:
         self.trend_req = TrendReq(hl="en-US", tz=360)
 
-    def fetch_trends(self, keyword: str, region: str = "world") -> List[TrendSignalResponse]:
+    def fetch_trends(self, keyword: str, region: str = "") -> List[TrendSignalResponse]:
         """
         Simple Google Trends wrapper: gets interest over time and computes momentum/velocity.
         """

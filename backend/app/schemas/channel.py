@@ -1,6 +1,6 @@
 from typing import Optional, List
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, Field
 
 
 class ChannelCreateRequest(BaseModel):
@@ -19,12 +19,12 @@ class VideoSummary(BaseModel):
 
 
 class ChannelOverviewResponse(BaseModel):
-    channel_id: str
-    handle: Optional[str]
-    username: Optional[str]
-    title: Optional[str]
+    channel_id: Optional[str] = None
+    handle: Optional[str] = None
+    username: Optional[str] = None
+    title: Optional[str] = None
     url: str
-    avg_views: Optional[float]
-    avg_engagement_rate: Optional[float]
-    upload_frequency_per_week: Optional[float]
-    top_videos: List[VideoSummary]
+    avg_views: Optional[float] = None
+    avg_engagement_rate: Optional[float] = None
+    upload_frequency_per_week: Optional[float] = None
+    top_videos: List[VideoSummary] = Field(default_factory=list)

@@ -12,7 +12,7 @@ router = APIRouter()
     response_model=list[TrendSignalResponse],
     summary="Fetch current trend signals for a keyword",
 )
-def get_trends(keyword: str, region: str = "world", db: DbSessionDep = None):
+def get_trends(keyword: str, region: str = "", db: DbSessionDep = None):
     service = GoogleTrendsService()
     trends = service.fetch_trends(keyword=keyword, region=region)
     return trends

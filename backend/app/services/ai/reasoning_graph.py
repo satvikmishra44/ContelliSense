@@ -17,6 +17,7 @@ from app.services.rag.rag_service import RagService
 from app.services.ai.gemini_client import GeminiClient
 from app.services.ai.recommendation_engine import RecommendationEngine
 from app.core.config import settings
+from app.utils.youtube_parsing import parse_channel_url
 
 
 class ReasoningState(TypedDict):
@@ -62,19 +63,27 @@ class ReasoningOrchestrator:
         # parse_channel_url is already done at API layer, but here we can re-use raw URL if needed.
         # For brevity, we ask analyzer to resolve channel_id internally.
         # In a more precise build, you'd pass channel_id/handle/username as inputs.
+
+        channel_id, handle, username = parse_channel_url(channel_url=channel_url)
         channel_overview = analyzer.analyze_channel(
-            channel_id=None,
-            handle=None,
-            username=None,
+            channel_id=channel_id,
+            handle=handle,
+            username=username,
             raw_url=channel_url,
         )
 
         # Persist analysis entity
-        channel_entity = (
-            self.db.query(Channel)
-            .filter(Channel.channel_id == channel_overview.channel_id)
-            .first()
-        )
+        query = self.db.query(Channel)
+
+        if channel_overview.channel_id:
+            channel_entity = query.filter(Channel.channel_id == channel_overview.channel_id).first()
+        elif channel_overview.handle:
+            channel_entity = query.filter(Channel.handle == channel_overview.handle).first()
+        elif channel_overview.username:
+            channel_entity = query.filter(Channel.username == channel_overview.username).first()
+        else:
+            channel_entity = query.filter(Channel.url == channel_overview.url).first()
+
         if channel_entity is None:
             raise ValueError("Channel not found after analysis")
 
@@ -90,7 +99,7 @@ class ReasoningOrchestrator:
 
         # Step 2: collect trends
         trends_service = GoogleTrendsService()
-        trends = trends_service.fetch_trends(keyword=channel_entity.handle or "youtube", region="world")
+        trends = trends_service.fetch_trends(keyword=channel_entity.handle or "youtube", region="")
 
         # Step 3: build RAG context
         rag_service = RagService(db=self.db, index_name=f"analysis-{analysis_uuid}")

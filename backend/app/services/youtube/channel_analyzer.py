@@ -23,14 +23,20 @@ class ChannelAnalyzer:
         raw_url: str,
     ) -> ChannelOverviewResponse:
         # Persist/find channel
-        channel = (
-            self.db.query(Channel)
-            .filter(Channel.channel_id == channel_id if channel_id else False)
-            .first()
-        )
+        query = self.db.query(Channel)
+
+        if channel_id:
+            channel = query.filter(Channel.channel_id == channel_id).first()
+        elif handle:
+            channel = query.filter(Channel.handle == handle).first()
+        elif username:
+            channel = query.filter(Channel.username == username).first()
+        else:
+            channel = query.filter(Channel.url == raw_url).first()
+            
         if channel is None:
             channel = Channel(
-                channel_id=channel_id or "",
+                channel_id=channel_id,
                 handle=handle,
                 username=username,
                 url=raw_url,
@@ -40,7 +46,7 @@ class ChannelAnalyzer:
             self.db.refresh(channel)
 
         # List videos via scrapetube
-        videos_raw = self.client.list_channel_videos(channel_id=channel.channel_id, limit=100)
+        videos_raw = self.client.list_channel_videos(channel_id=channel.channel_id, handle=channel.handle, username=channel.username, raw_url=channel.url, limit=100)
         video_ids = []
         video_entities: List[Video] = []
 

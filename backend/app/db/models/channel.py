@@ -10,9 +10,9 @@ class Channel(Base):
     __tablename__ = "channels"
 
     id = Column(Integer, primary_key=True, index=True)
-    channel_id = Column(String(128), unique=True, index=True, nullable=False)
-    handle = Column(String(128), index=True, nullable=True)
-    username = Column(String(256), nullable=True)
+    channel_id = Column(String(128), unique=True, index=True, nullable=True)
+    handle = Column(String(128), unique=True, index=True, nullable=True)
+    username = Column(String(256), unique=True, nullable=True)
     title = Column(String(256), nullable=True)
     description = Column(Text, nullable=True)
     url = Column(String(512), nullable=False)
