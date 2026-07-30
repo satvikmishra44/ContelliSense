@@ -1,4 +1,5 @@
 import asyncio
+from statistics import mean
 import time
 from datetime import datetime
 from typing import List, Optional
@@ -300,118 +301,96 @@ class ChannelAnalyzer:
 
         # Step 3: Fetch videos using best available identifier.
         fetch_start = time.perf_counter()
-        logger.info("Fetching channel videos from Scrapetube")
-
+        logger.info("Fetching channel videos via YouTube API/Scrapetube")
         videos_raw = asyncio.run(
             self.client.list_channel_videos_api_first(
                 channel_id=channel.channel_id or None,
                 channel_url=raw_url if not channel.channel_id else None,
                 channel_username=username if (not channel.channel_id and username) else None,
-                limit=100,
+                limit=30,
             )
         )
 
-        logger.info(
-            "Fetched channel videos from Scrapetube | count=%s duration_ms=%s",
-            len(videos_raw),
-            round((time.perf_counter() - fetch_start) * 1000, 2),
-        )
+        video_entities = []
+        views_list = []
+        engagement_list = []
 
-        # Step 4: Persist unseen videos.
-        inserted_video_count = 0
-        for item in videos_raw:
-            video_id = item.get("videoId")
-            if not video_id:
-                continue
-
-            existing_video = (
-                self.db.query(Video)
-                .filter(Video.video_id == video_id)
-                .first()
+        for v in videos_raw:
+            video_entities.append(
+                Video(
+                    channel_id=channel.id,
+                    video_id=v.get("videoId"),
+                    title=v.get("title"),
+                    views=v.get("views"),
+                    likes=v.get("likes"),
+                    engagement_rate=v.get("engagement_rate"),
+                    published_at=v.get("published_at"),
+                    duration_seconds=v.get("duration_seconds"),
+                )
             )
-            if existing_video:
-                continue
+            if v.get("views") is not None:
+                views_list.append(v["views"])
+            if v.get("engagement_rate") is not None:
+                engagement_list.append(v["engagement_rate"])
 
-            title = self._safe_extract_title(item)
-            published_at = self._safe_extract_published_at(item)
-            video_url = f"https://www.youtube.com/watch?v={video_id}"
-
-            video = Video(
-                channel_id=channel.id,
-                video_id=video_id,
-                title=title,
-                url=video_url,
-                published_at=published_at,
-            )
-            self.db.add(video)
-            inserted_video_count += 1
-
+        self.db.bulk_save_objects(video_entities)
         self.db.commit()
 
-        logger.info("Prepared video entities | inserted_video_count=%s", inserted_video_count)
+        avg_views = round(mean(views_list), 2) if views_list else None
+        avg_engagement_rate = round(mean(engagement_list), 4) if engagement_list else None
 
-        # Step 5: Build aggregates.
-        all_channel_videos: List[Video] = (
-            self.db.query(Video)
-            .filter(Video.channel_id == channel.id)
-            .all()
-        )
-
-        views = [v.views for v in all_channel_videos if v.views is not None]
-        avg_views = float(np.mean(views)) if views else None
-
-        engagements = [
-            v.engagement_rate for v in all_channel_videos if v.engagement_rate is not None
-        ]
-        avg_engagement = float(np.mean(engagements)) if engagements else None
-
-        timestamps = [v.published_at for v in all_channel_videos if v.published_at]
-        if len(timestamps) >= 2:
-            timestamps.sort()
-            total_weeks = max(1.0, (timestamps[-1] - timestamps[0]).days / 7.0)
-            upload_freq = len(timestamps) / total_weeks
-        elif len(timestamps) == 1:
-            upload_freq = 1.0
-        else:
-            upload_freq = None
-
-        sorted_videos = sorted(
-            all_channel_videos,
-            key=lambda v: (v.views is not None, v.views if v.views is not None else -1),
-            reverse=True,
-        )
-
-        top_videos = [
-            VideoSummary(
-                video_id=v.video_id,
-                title=v.title,
-                url=v.url,
-                views=v.views,
-                likes=v.likes,
-                engagement_rate=v.engagement_rate,
-                published_at=v.published_at.isoformat() if v.published_at else None,
-                duration_seconds=v.duration_seconds,
-            )
-            for v in sorted_videos[:10]
-        ]
+        upload_frequency_per_week = self._estimate_upload_frequency(videos_raw)
 
         logger.info(
             "Channel analysis complete | channel_db_id=%s avg_views=%s avg_engagement=%s upload_frequency_per_week=%s total_videos=%s",
             channel.id,
             avg_views,
-            avg_engagement,
-            upload_freq,
-            len(all_channel_videos),
+            avg_engagement_rate,
+            upload_frequency_per_week,
+            len(videos_raw),
         )
 
         return ChannelOverviewResponse(
-            channel_id=channel.channel_id or "",
+            channel_id=channel.channel_id,
             handle=channel.handle,
             username=channel.username,
             title=channel.title,
-            url=channel.url,
+            url=raw_url,
             avg_views=avg_views,
-            avg_engagement_rate=avg_engagement,
-            upload_frequency_per_week=upload_freq,
-            top_videos=top_videos,
+            avg_engagement_rate=avg_engagement_rate,
+            upload_frequency_per_week=upload_frequency_per_week,
+            top_videos=[
+                VideoResponse(
+                    video_id=v.get("videoId"),
+                    title=v.get("title"),
+                    url=f"https://www.youtube.com/watch?v={v.get('videoId')}",
+                    views=v.get("views"),
+                    likes=v.get("likes"),
+                    engagement_rate=v.get("engagement_rate"),
+                    published_at=v.get("published_at"),
+                    duration_seconds=v.get("duration_seconds"),
+                )
+                for v in videos_raw[:10]
+            ],
         )
+
+    def _estimate_upload_frequency(self, videos_raw) -> float | None:
+        from datetime import datetime
+
+        dates = []
+        for v in videos_raw:
+            ts = v.get("published_at")
+            if not ts:
+                continue
+            try:
+                dates.append(datetime.fromisoformat(ts.replace("Z", "+00:00")))
+            except ValueError:
+                continue
+
+        if len(dates) < 2:
+            return None
+
+        dates.sort()
+        span_days = (dates[-1] - dates[0]).days or 1
+        weeks = span_days / 7
+        return round(len(dates) / weeks, 2) if weeks > 0 else None
