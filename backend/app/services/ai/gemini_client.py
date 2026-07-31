@@ -43,11 +43,12 @@ class GeminiClient:
                     "trend_explanation": {"type": "string"},
                     "risk_factors": {"type": "string"},
                     "estimated_effort": {"type": "string"},
-                    "search_potential": {"type": "string"},
+                    "search_potential": {"type": "number"},
                     "publishing_window": {"type": "string"},
                     "virality_score": {"type": "number"},
                     "confidence_score": {"type": "number"},
                     "hit_probability": {"type": "number"},
+                    "expected_ctr": {"type": "number"},
                 },
                 "required": ["title", "summary", "hook", "why_it_should_work"],
             },
@@ -82,6 +83,7 @@ class GeminiClient:
             "reasoning for why it should work, supporting evidence from the context or trends, "
             "risk factors if any, estimated production effort, search potential, ideal publishing window, "
             "and numeric scores between 0 and 1 for virality_score, confidence_score, hit_probability."
+            "Use numeric values between 0 and 1 for virality_score, confidence_score, hit_probability, expected_ctr, and search_potential. Do not return labels like High/Medium/Low for numeric fields."
         )
 
         response = self.client.models.generate_content(
