@@ -1,10 +1,9 @@
 import asyncio
-from statistics import mean
 import time
 from datetime import datetime
-from typing import List, Optional
+from statistics import mean
+from typing import Optional
 
-import numpy as np
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,24 +32,16 @@ class ChannelAnalyzer:
         self.db = db
         self.client = YouTubeClient()
 
-    def _safe_extract_title(self, item: dict) -> str:
+    def _run_async(self, coro):
         try:
-            return item["title"]["runs"][0]["text"]
-        except Exception:
-            return "Untitled Video"
-
-    def _safe_extract_published_at(self, item: dict) -> Optional[datetime]:
-        """
-        Scrapetube payloads vary. We keep this tolerant so analysis does not fail
-        just because publish date extraction is inconsistent.
-        """
-        try:
-            raw_value = item.get("publishedTimeText")
-            if not raw_value:
-                return None
-            return None
-        except Exception:
-            return None
+            return asyncio.run(coro)
+        except RuntimeError:
+            logger.warning("asyncio.run() unavailable due to active event loop")
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(coro)
+            finally:
+                loop.close()
 
     def _find_existing_channel(
         self,
@@ -59,15 +50,6 @@ class ChannelAnalyzer:
         username: Optional[str],
         raw_url: str,
     ) -> Optional[Channel]:
-        """
-        Reuse an existing row if we already know this channel under any unique identifier.
-
-        Lookup priority:
-        1. channel_id
-        2. handle
-        3. username
-        4. url
-        """
         if channel_id:
             existing = (
                 self.db.query(Channel)
@@ -132,11 +114,6 @@ class ChannelAnalyzer:
         username: Optional[str],
         raw_url: str,
     ) -> Channel:
-        """
-        Reuse/update existing channel row when possible, otherwise create one.
-
-        This prevents duplicate unique-key violations on handle/username/channel_id.
-        """
         existing = self._find_existing_channel(
             channel_id=channel_id,
             handle=handle,
@@ -212,7 +189,6 @@ class ChannelAnalyzer:
             )
             return new_channel
         except IntegrityError:
-            # Another row may already exist due to earlier partial state or race condition.
             self.db.rollback()
             logger.warning(
                 "Create channel hit unique constraint, retrying lookup | channel_id=%s handle=%s username=%s raw_url=%s",
@@ -259,7 +235,6 @@ class ChannelAnalyzer:
             username,
         )
 
-        # Step 1: Resolve channel ID if missing.
         if not channel_id:
             logger.info(
                 "Channel ID missing, attempting resolution | raw_url=%s handle=%s username=%s",
@@ -268,17 +243,19 @@ class ChannelAnalyzer:
                 username,
             )
             try:
-                resolved_channel_id = asyncio.run(
+                resolved_channel_id = self._run_async(
                     self.client.resolve_channel_id(
                         raw_url=raw_url,
                         handle=handle,
                         username=username,
                     )
                 )
-            except RuntimeError:
-                logger.warning(
-                    "asyncio.run() failed due to active event loop; skipping direct resolution | raw_url=%s",
+            except Exception:
+                logger.exception(
+                    "Channel ID resolution failed | raw_url=%s handle=%s username=%s",
                     raw_url,
+                    handle,
+                    username,
                 )
                 resolved_channel_id = None
 
@@ -291,7 +268,6 @@ class ChannelAnalyzer:
                     raw_url,
                 )
 
-        # Step 2: Upsert/reuse channel row safely.
         channel = self._upsert_channel(
             channel_id=channel_id,
             handle=handle,
@@ -299,10 +275,10 @@ class ChannelAnalyzer:
             raw_url=raw_url,
         )
 
-        # Step 3: Fetch videos using best available identifier.
         fetch_start = time.perf_counter()
         logger.info("Fetching channel videos via YouTube API/Scrapetube")
-        videos_raw = asyncio.run(
+
+        videos_raw = self._run_async(
             self.client.list_channel_videos_api_first(
                 channel_id=channel.channel_id or None,
                 channel_url=raw_url if not channel.channel_id else None,
@@ -311,34 +287,78 @@ class ChannelAnalyzer:
             )
         )
 
+        logger.info(
+            "Fetched channel videos | count=%s duration_ms=%s",
+            len(videos_raw),
+            round((time.perf_counter() - fetch_start) * 1000, 2),
+        )
+
+        existing_video_ids = {
+            row[0]
+            for row in self.db.query(Video.video_id)
+            .filter(Video.channel_id == channel.id)
+            .all()
+        }
+
         video_entities = []
         views_list = []
         engagement_list = []
 
         for v in videos_raw:
+            video_id = v.get("videoId")
+            if not video_id:
+                continue
+
+            if video_id in existing_video_ids:
+                continue
+
+            views = v.get("views")
+            likes = v.get("likes")
+            engagement_rate = v.get("engagement_rate")
+            published_at = v.get("published_at")
+            duration_seconds = v.get("duration_seconds")
+
             video_entities.append(
                 Video(
                     channel_id=channel.id,
-                    video_id=v.get("videoId"),
+                    video_id=video_id,
                     title=v.get("title"),
-                    views=v.get("views"),
-                    likes=v.get("likes"),
-                    engagement_rate=v.get("engagement_rate"),
-                    published_at=v.get("published_at"),
-                    duration_seconds=v.get("duration_seconds"),
+                    url=f"https://www.youtube.com/watch?v={video_id}",
+                    views=views,
+                    likes=likes,
+                    engagement_rate=engagement_rate,
+                    published_at=published_at,
+                    duration_seconds=duration_seconds,
                 )
             )
+
+        if video_entities:
+            try:
+                self.db.add_all(video_entities)
+                self.db.commit()
+                logger.info(
+                    "Persisted new videos | inserted_count=%s channel_db_id=%s",
+                    len(video_entities),
+                    channel.id,
+                )
+            except IntegrityError:
+                self.db.rollback()
+                logger.exception(
+                    "Video persistence failed due to integrity error | channel_db_id=%s",
+                    channel.id,
+                )
+                raise
+        else:
+            logger.info("No new videos to persist | channel_db_id=%s", channel.id)
+
+        for v in videos_raw:
             if v.get("views") is not None:
                 views_list.append(v["views"])
             if v.get("engagement_rate") is not None:
                 engagement_list.append(v["engagement_rate"])
 
-        self.db.bulk_save_objects(video_entities)
-        self.db.commit()
-
         avg_views = round(mean(views_list), 2) if views_list else None
         avg_engagement_rate = round(mean(engagement_list), 4) if engagement_list else None
-
         upload_frequency_per_week = self._estimate_upload_frequency(videos_raw)
 
         logger.info(
@@ -360,7 +380,7 @@ class ChannelAnalyzer:
             avg_engagement_rate=avg_engagement_rate,
             upload_frequency_per_week=upload_frequency_per_week,
             top_videos=[
-                VideoResponse(
+                VideoSummary(
                     video_id=v.get("videoId"),
                     title=v.get("title"),
                     url=f"https://www.youtube.com/watch?v={v.get('videoId')}",
@@ -371,12 +391,11 @@ class ChannelAnalyzer:
                     duration_seconds=v.get("duration_seconds"),
                 )
                 for v in videos_raw[:10]
+                if v.get("videoId")
             ],
         )
 
     def _estimate_upload_frequency(self, videos_raw) -> float | None:
-        from datetime import datetime
-
         dates = []
         for v in videos_raw:
             ts = v.get("published_at")
