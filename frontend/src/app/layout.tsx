@@ -3,6 +3,7 @@ import { Providers } from "./providers";
 import "./globals.css";
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
+import { Toaster } from "@/components/ui/sonner";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
@@ -20,7 +21,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={cn("font-sans", geist.variable)}>
       <body>
-        <Providers>{children}</Providers>
+        <Providers>{children}<Toaster /> </Providers>
       </body>
     </html>
   );
