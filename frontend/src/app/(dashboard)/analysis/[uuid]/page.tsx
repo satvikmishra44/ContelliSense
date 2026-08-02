@@ -69,7 +69,7 @@ export default function AnalysisDetailPage() {
         <TabsContent value="recommendations" className="mt-4">
           <div className="grid gap-4 sm:grid-cols-2">
             {data.recommendations.map((rec, idx) => (
-              <RecommendationCard key={rec.id} rec={rec} index={idx} />
+              <RecommendationCard key={rec.id ?? `${rec.title}-${idx}`} rec={rec} index={idx} />
             ))}
           </div>
         </TabsContent>

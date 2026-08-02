@@ -32,5 +32,5 @@ export async function getAnalysisHistory(): Promise<AnalysisHistoryItem[]> {
 
 export function getExcelDownloadUrl(uuid: string): string {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
-  return `${base}/report/excel/${uuid}`;
+  return `${base}/reports/download/${uuid}`;
 }
