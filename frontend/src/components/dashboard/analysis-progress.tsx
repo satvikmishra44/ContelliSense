@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence, useMotionValue, animate } from "framer-motion";
+import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,12 +16,6 @@ const STEPS = [
 
 const STEP_DURATION_MS = 3500;
 
-/* -------------------------------------------------------------------------
-   BREATHING CORE
-   A small pulsing node that represents the "agent" itself — this is the
-   emotional anchor of the loading experience. It breathes at rest and
-   flares briefly each time a step completes.
-------------------------------------------------------------------------- */
 function BreathingCore({ pulseKey }: { pulseKey: number }) {
   return (
     <div className="relative flex h-11 w-11 shrink-0 items-center justify-center">
@@ -50,9 +44,6 @@ function BreathingCore({ pulseKey }: { pulseKey: number }) {
   );
 }
 
-/* -------------------------------------------------------------------------
-   ELAPSED TIMER — mono numeric readout, ticks in real time
-------------------------------------------------------------------------- */
 function ElapsedTimer({ active }: { active: boolean }) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -62,33 +53,20 @@ function ElapsedTimer({ active }: { active: boolean }) {
       return;
     }
     const start = Date.now();
-    const interval = setInterval(() => {
-      setElapsed((Date.now() - start) / 1000);
-    }, 100);
+    const interval = setInterval(() => setElapsed((Date.now() - start) / 1000), 100);
     return () => clearInterval(interval);
   }, [active]);
 
-  const seconds = elapsed.toFixed(1);
-
-  return (
-    <span className="font-mono text-[12px] tabular-nums text-muted-foreground/70">
-      {seconds}s
-    </span>
-  );
+  return <span className="font-mono text-[12px] tabular-nums text-muted-foreground/70">{elapsed.toFixed(1)}s</span>;
 }
 
-/* -------------------------------------------------------------------------
-   STEP RAIL PROGRESS
-   A vertical line that fills smoothly (not in discrete jumps) between
-   steps, giving continuous motion instead of a staircase feeling.
-------------------------------------------------------------------------- */
 function ConnectingRail({ progress }: { progress: number }) {
   return (
     <div className="absolute left-[21px] top-11 h-[calc(100%-2.75rem)] w-px bg-border/60">
       <motion.div
         className="absolute left-0 top-0 w-px bg-gradient-to-b from-primary to-primary/40"
-        style={{ height: `${progress * 100}%` }}
-        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        animate={{ height: `${progress * 100}%` }}
+        transition={{ type: "spring", stiffness: 120, damping: 24 }}
       />
     </div>
   );
@@ -124,17 +102,15 @@ export function AnalysisProgress({ active }: { active: boolean }) {
           initial={{ opacity: 0, height: 0, y: -12 }}
           animate={{ opacity: 1, height: "auto", y: 0 }}
           exit={{ opacity: 0, height: 0, y: -12 }}
-          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ type: "spring", stiffness: 220, damping: 28 }}
           className="mt-8 overflow-hidden"
         >
           <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/60 backdrop-blur-sm">
-            {/* Ambient scan-line sweep across the card while active */}
             <motion.div
               aria-hidden
               className="absolute inset-0 opacity-[0.04]"
               style={{
-                background:
-                  "linear-gradient(105deg, transparent 40%, var(--color-primary) 50%, transparent 60%)",
+                background: "linear-gradient(105deg, transparent 40%, var(--color-primary) 50%, transparent 60%)",
               }}
               animate={{ x: ["-120%", "120%"] }}
               transition={{ duration: 3.2, repeat: Infinity, ease: "linear" }}
@@ -144,12 +120,8 @@ export function AnalysisProgress({ active }: { active: boolean }) {
               <div className="flex items-center gap-3">
                 <BreathingCore pulseKey={pulseKey} />
                 <div>
-                  <h3 className="font-display text-[15px] font-medium text-foreground">
-                    Running full channel analysis
-                  </h3>
-                  <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-                    {STEPS[stepIndex].detail}
-                  </p>
+                  <h3 className="font-display text-[15px] font-medium text-foreground">Running full channel analysis</h3>
+                  <p className="mt-0.5 text-[12.5px] text-muted-foreground">{STEPS[stepIndex].detail}</p>
                 </div>
               </div>
               <ElapsedTimer active={active} />
@@ -169,15 +141,13 @@ export function AnalysisProgress({ active }: { active: boolean }) {
                       className="relative flex items-center gap-3"
                       initial={{ opacity: 0, x: -8 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.4, delay: idx * 0.04 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 26, delay: idx * 0.04 }}
                     >
                       <span
                         className={cn(
                           "relative z-10 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border text-[11px] font-medium transition-all duration-500",
-                          done &&
-                            "border-primary bg-primary text-primary-foreground shadow-[0_0_12px_-2px_var(--color-primary)]",
-                          current &&
-                            "border-primary/60 text-primary",
+                          done && "border-primary bg-primary text-primary-foreground shadow-[0_0_12px_-2px_var(--color-primary)]",
+                          current && "border-primary/60 text-primary",
                           !done && !current && "border-border/60 text-muted-foreground/50"
                         )}
                       >
@@ -192,10 +162,7 @@ export function AnalysisProgress({ active }: { active: boolean }) {
                               <Check className="h-3 w-3" />
                             </motion.span>
                           ) : current ? (
-                            <motion.span
-                              key="current"
-                              className="relative flex h-full w-full items-center justify-center"
-                            >
+                            <motion.span key="current" className="relative flex h-full w-full items-center justify-center">
                               <motion.span
                                 className="absolute h-full w-full rounded-full border border-primary/40"
                                 animate={{ scale: [1, 1.5], opacity: [0.8, 0] }}
@@ -221,22 +188,13 @@ export function AnalysisProgress({ active }: { active: boolean }) {
                       </span>
 
                       {current && (
-                        <motion.span
-                          className="ml-auto flex gap-1"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                        >
+                        <motion.span className="ml-auto flex gap-1" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                           {[0, 1, 2].map((i) => (
                             <motion.span
                               key={i}
                               className="h-1 w-1 rounded-full bg-primary/60"
                               animate={{ opacity: [0.2, 1, 0.2] }}
-                              transition={{
-                                duration: 1.1,
-                                repeat: Infinity,
-                                delay: i * 0.18,
-                                ease: "easeInOut",
-                              }}
+                              transition={{ duration: 1.1, repeat: Infinity, delay: i * 0.18, ease: "easeInOut" }}
                             />
                           ))}
                         </motion.span>

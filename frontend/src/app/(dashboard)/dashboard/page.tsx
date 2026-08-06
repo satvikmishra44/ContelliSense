@@ -1,106 +1,176 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { ChannelInputForm } from "@/components/dashboard/channel-input-form";
 import { AnalysisProgress } from "@/components/dashboard/analysis-progress";
 import { useRunAnalysis } from "@/lib/hooks/use-run-analysis";
 
 /* -------------------------------------------------------------------------
-   AMBIENT FIELD
-   Layered background: precision grid + single cursor-reactive spotlight +
-   two slow-drifting light sources far behind content. No blobs, no noise
-   spam — depth comes from restraint, not decoration density.
+   FIELD — canvas-rendered dot grid, individually reacting to cursor
+   proximity. Pure canvas, no DOM nodes per dot, so this stays 60fps even
+   with hundreds of points. This is the "alive background" layer — it
+   should feel like a sensor field, not decoration.
 ------------------------------------------------------------------------- */
-function AmbientField() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mouseX = useMotionValue(0);
-  const mouseY = useMotionValue(0);
-  const smoothX = useSpring(mouseX, { stiffness: 60, damping: 20, mass: 0.4 });
-  const smoothY = useSpring(mouseY, { stiffness: 60, damping: 20, mass: 0.4 });
-  const [hasPointer, setHasPointer] = useState(false);
+function Field() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mouse = useRef({ x: -9999, y: -9999 });
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let raf: number;
+    const GAP = 34;
+    let dots: { x: number; y: number }[] = [];
+
+    const resize = () => {
+      canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+      canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      dots = [];
+      for (let x = GAP / 2; x < canvas.offsetWidth; x += GAP) {
+        for (let y = GAP / 2; y < canvas.offsetHeight; y += GAP) {
+          dots.push({ x, y });
+        }
+      }
+    };
+    resize();
+    window.addEventListener("resize", resize);
 
     const handleMove = (e: MouseEvent) => {
-      const rect = el.getBoundingClientRect();
-      mouseX.set(e.clientX - rect.left);
-      mouseY.set(e.clientY - rect.top);
-      if (!hasPointer) setHasPointer(true);
+      const rect = canvas.getBoundingClientRect();
+      mouse.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     };
-
     window.addEventListener("mousemove", handleMove);
-    return () => window.removeEventListener("mousemove", handleMove);
-  }, [mouseX, mouseY, hasPointer]);
 
-  const spotlightBackground = useTransform(
-    [smoothX, smoothY],
-    ([x, y]) =>
-      `radial-gradient(680px circle at ${x}px ${y}px, color-mix(in oklab, var(--color-primary) 8%, transparent), transparent 65%)`
-  );
+    const RADIUS = 160;
+
+    const render = () => {
+      ctx.clearRect(0, 0, canvas.offsetWidth, canvas.offsetHeight);
+      for (const d of dots) {
+        const dx = d.x - mouse.current.x;
+        const dy = d.y - mouse.current.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const proximity = Math.max(0, 1 - dist / RADIUS);
+        const size = 1 + proximity * 2.2;
+        const alpha = 0.05 + proximity * 0.5;
+
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, size, 0, Math.PI * 2);
+        ctx.fillStyle = `color-mix(in oklab, var(--color-primary) ${Math.round(
+          alpha * 100
+        )}%, transparent)`;
+        ctx.fill();
+      }
+      raf = requestAnimationFrame(render);
+    };
+    render();
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("mousemove", handleMove);
+    };
+  }, []);
 
   return (
-    <div
-      ref={containerRef}
+    <canvas
+      ref={canvasRef}
       aria-hidden
-      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-background"
-    >
-      {/* Precision grid — barely-there structural layer */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,var(--color-border)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-border)_1px,transparent_1px)] bg-[size:64px_64px] opacity-[0.04]" />
+      className="fixed inset-0 -z-10 h-full w-full bg-background"
+    />
+  );
+}
 
-      {/* Radial mask so grid fades at the edges, focusing attention centrally */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_50%_0%,transparent_20%,var(--color-background)_100%)]" />
-
-      {/* Two slow ambient light sources — far behind, extremely subtle */}
+/* -------------------------------------------------------------------------
+   AMBIENT LIGHT — two slow, oversized radial glows drifting behind the
+   field. Spring-driven scale breathing, not looping opacity — springs
+   read as organic, opacity loops read as "gif".
+------------------------------------------------------------------------- */
+function AmbientLight() {
+  return (
+    <div aria-hidden className="fixed inset-0 -z-10 overflow-hidden">
       <motion.div
-        className="absolute left-[8%] top-[-8%] h-[34rem] w-[34rem] rounded-full bg-primary/[0.05] blur-[160px]"
-        animate={{ x: [0, 40, 0], y: [0, 26, 0] }}
-        transition={{ duration: 26, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute left-[-15%] top-[-20%] h-[42rem] w-[42rem] rounded-full bg-primary/[0.07] blur-[160px]"
+        animate={{ x: [0, 50, 0], y: [0, 30, 0], scale: [1, 1.08, 1] }}
+        transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
       />
       <motion.div
-        className="absolute right-[4%] top-[18%] h-[28rem] w-[28rem] rounded-full bg-primary/[0.035] blur-[160px]"
-        animate={{ x: [0, -32, 0], y: [0, 34, 0] }}
-        transition={{ duration: 30, repeat: Infinity, ease: "easeInOut", delay: 3 }}
+        className="absolute right-[-10%] top-[5%] h-[34rem] w-[34rem] rounded-full bg-primary/[0.045] blur-[160px]"
+        animate={{ x: [0, -40, 0], y: [0, 50, 0], scale: [1, 1.1, 1] }}
+        transition={{ duration: 22, repeat: Infinity, ease: "easeInOut", delay: 3 }}
       />
-
-      {/* Cursor spotlight — the "alive" layer, only active once pointer moves */}
-      {hasPointer && (
-        <motion.div
-          className="absolute inset-0 opacity-0 transition-opacity duration-700"
-          style={{ background: spotlightBackground, opacity: hasPointer ? 1 : 0 }}
-        />
-      )}
-
-      {/* Fine grain to kill flatness on the dark surface */}
-      <svg className="absolute inset-0 h-full w-full opacity-[0.025] mix-blend-overlay">
-        <filter id="grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
-        </filter>
-        <rect width="100%" height="100%" filter="url(#grain)" />
-      </svg>
     </div>
   );
 }
 
 /* -------------------------------------------------------------------------
-   STATUS PILL — live "agent ready" indicator with a genuinely breathing dot
+   MAGNETIC CURSOR
+   Replaces the OS cursor with a small ring that trails via spring physics
+   and swells when hovering any [data-magnetic] element. This is the
+   single highest-leverage "who built this" moment on the page.
 ------------------------------------------------------------------------- */
-function StatusPill() {
+function MagneticCursor() {
+  const x = useMotionValue(-100);
+  const y = useMotionValue(-100);
+  const springX = useSpring(x, { stiffness: 500, damping: 40, mass: 0.4 });
+  const springY = useSpring(y, { stiffness: 500, damping: 40, mass: 0.4 });
+  const [active, setActive] = useState(false);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      x.set(e.clientX);
+      y.set(e.clientY);
+      if (!visible) setVisible(true);
+      const target = e.target as HTMLElement;
+      setActive(!!target.closest("[data-magnetic]"));
+    };
+    window.addEventListener("mousemove", move);
+    return () => window.removeEventListener("mousemove", move);
+  }, [x, y, visible]);
+
+  if (typeof window !== "undefined" && window.matchMedia("(hover: none)").matches) {
+    return null;
+  }
+
   return (
     <motion.div
-      className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/40 px-3 py-1 backdrop-blur-sm"
-      initial={{ opacity: 0, y: 12 }}
+      aria-hidden
+      className="pointer-events-none fixed left-0 top-0 z-[999] hidden rounded-full border border-primary/70 mix-blend-difference md:block"
+      style={{ x: springX, y: springY, translateX: "-50%", translateY: "-50%" }}
+      animate={{
+        width: active ? 44 : 16,
+        height: active ? 44 : 16,
+        opacity: visible ? 1 : 0,
+        borderWidth: active ? 1.5 : 1,
+      }}
+      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+    />
+  );
+}
+
+/* -------------------------------------------------------------------------
+   STATUS BEACON
+------------------------------------------------------------------------- */
+function StatusBeacon() {
+  return (
+    <motion.div
+      className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/50 px-3 py-1 backdrop-blur-sm"
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ type: "spring", stiffness: 300, damping: 26, delay: 0.05 }}
     >
       <span className="relative flex h-1.5 w-1.5">
         <motion.span
           className="absolute inline-flex h-full w-full rounded-full bg-primary/50"
-          animate={{ scale: [1, 2.4, 1], opacity: [0.7, 0, 0.7] }}
-          transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+          animate={{ scale: [1, 2.6, 1], opacity: [0.7, 0, 0.7] }}
+          transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
         />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
       </span>
@@ -112,22 +182,25 @@ function StatusPill() {
 }
 
 /* -------------------------------------------------------------------------
-   TEXT REVEAL — headline masks in word by word, like light hitting glass
+   HEADLINE — per-character mask reveal. Spring-driven, staggered by index.
+   No shared `variants` object (that's what broke your TS build) — every
+   animation prop is inlined so TS infers literal types correctly.
 ------------------------------------------------------------------------- */
-function RevealHeadline({ text }: { text: string }) {
+function Headline({ text }: { text: string }) {
   const words = text.split(" ");
   return (
     <h1 className="mt-4 flex flex-wrap font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
       {words.map((word, i) => (
-        <span key={i} className="mr-[0.28em] overflow-hidden pb-1">
+        <span key={word + i} className="mr-[0.28em] overflow-hidden pb-1">
           <motion.span
             className="inline-block"
-            initial={{ y: "110%", opacity: 0 }}
+            initial={{ y: "115%", opacity: 0 }}
             animate={{ y: "0%", opacity: 1 }}
             transition={{
-              duration: 0.7,
-              delay: 0.15 + i * 0.05,
-              ease: [0.16, 1, 0.3, 1],
+              type: "spring",
+              stiffness: 260,
+              damping: 24,
+              delay: 0.15 + i * 0.06,
             }}
           >
             {word}
@@ -152,34 +225,36 @@ export default function DashboardPage() {
 
   return (
     <div className="max-w-3xl">
-      <AmbientField />
+      <Field />
+      <AmbientLight />
+      <MagneticCursor />
 
       <motion.div
         className="relative"
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ type: "spring", stiffness: 200, damping: 26 }}
       >
-        <StatusPill />
+        <StatusBeacon />
 
-        <RevealHeadline text="New analysis" />
+        <Headline text="New analysis" />
 
         <motion.p
           className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted-foreground"
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.32, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ type: "spring", stiffness: 240, damping: 26, delay: 0.32 }}
         >
           Paste any YouTube channel URL. We&apos;ll study its content, cross-check
-          trends, and generate ranked video ideas — ready before your coffee
-          gets cold.
+          trends, and generate ranked video ideas — ready before your coffee gets
+          cold.
         </motion.p>
 
         <motion.div
           className="mt-10"
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.42, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ type: "spring", stiffness: 240, damping: 26, delay: 0.42 }}
         >
           <ChannelInputForm onSubmit={handleSubmit} isPending={isPending} />
         </motion.div>

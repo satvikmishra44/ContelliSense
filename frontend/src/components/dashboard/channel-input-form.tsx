@@ -4,14 +4,8 @@ import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import {
-  motion,
-  AnimatePresence,
-  useMotionValue,
-  useSpring,
-  useTransform,
-} from "framer-motion";
-import { Loader2, Sparkles, AlertCircle, ArrowRight, Link2 } from "lucide-react";
+import { motion, AnimatePresence, useMotionValue, useSpring } from "framer-motion";
+import { AlertCircle, ArrowRight, Link2, Loader2, Sparkles } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
@@ -33,11 +27,10 @@ interface Props {
 }
 
 /* -------------------------------------------------------------------------
-   MAGNETIC BUTTON
-   Cursor "pulls" the button within a small radius, spring-released on
-   leave. Combined with a press-compression scale and a shimmer sweep
-   that plays on hover. This is the single most memorable micro-interaction
-   on the page — it should feel like the button has weight.
+   MAGNETIC SUBMIT BUTTON
+   `data-magnetic` lets the global cursor in page.tsx detect this element.
+   Motion offset uses spring only — never a bezier array — so this file
+   can never hit the `Easing` TS error you kept running into.
 ------------------------------------------------------------------------- */
 function MagneticSubmitButton({
   isPending,
@@ -51,17 +44,15 @@ function MagneticSubmitButton({
   const ref = useRef<HTMLButtonElement>(null);
   const x = useMotionValue(0);
   const y = useMotionValue(0);
-  const springX = useSpring(x, { stiffness: 240, damping: 18, mass: 0.4 });
-  const springY = useSpring(y, { stiffness: 240, damping: 18, mass: 0.4 });
+  const springX = useSpring(x, { stiffness: 300, damping: 20, mass: 0.4 });
+  const springY = useSpring(y, { stiffness: 300, damping: 20, mass: 0.4 });
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const el = ref.current;
     if (!el || disabled) return;
     const rect = el.getBoundingClientRect();
-    const relX = e.clientX - rect.left - rect.width / 2;
-    const relY = e.clientY - rect.top - rect.height / 2;
-    x.set(relX * 0.28);
-    y.set(relY * 0.5);
+    x.set((e.clientX - rect.left - rect.width / 2) * 0.3);
+    y.set((e.clientY - rect.top - rect.height / 2) * 0.5);
   };
 
   const handleMouseLeave = () => {
@@ -73,21 +64,20 @@ function MagneticSubmitButton({
     <motion.button
       ref={ref}
       type="submit"
+      data-magnetic
       disabled={disabled}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       style={{ x: springX, y: springY }}
-      whileTap={{ scale: 0.96 }}
+      whileTap={{ scale: 0.95 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
       className={cn(
-        "group relative flex h-[52px] shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl px-6 font-medium text-[14px] transition-colors duration-300",
+        "group relative flex h-[52px] shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl px-6 text-[14px] font-medium transition-colors duration-300",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-        success
-          ? "bg-emerald-500 text-white"
-          : "bg-primary text-primary-foreground",
+        success ? "bg-emerald-500 text-white" : "bg-primary text-primary-foreground",
         disabled && !success && "cursor-not-allowed opacity-70"
       )}
     >
-      {/* Shimmer sweep on hover */}
       {!disabled && (
         <motion.span
           aria-hidden
@@ -106,23 +96,16 @@ function MagneticSubmitButton({
               initial={{ opacity: 0, scale: 0.7 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.7 }}
-              transition={{ type: "spring", stiffness: 400, damping: 20 }}
+              transition={{ type: "spring", stiffness: 420, damping: 22 }}
             >
-              <motion.svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-              >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                 <motion.path
                   d="M4 12l5 5L20 6"
                   initial={{ pathLength: 0 }}
                   animate={{ pathLength: 1 }}
-                  transition={{ duration: 0.4, ease: "easeOut" }}
+                  transition={{ duration: 0.4 }}
                 />
-              </motion.svg>
+              </svg>
               Launched
             </motion.span>
           ) : isPending ? (
@@ -155,13 +138,6 @@ function MagneticSubmitButton({
   );
 }
 
-/* -------------------------------------------------------------------------
-   HERO INPUT
-   The input is the centerpiece — a breathing glow ring on focus, an
-   animated conic border-beam that circles the field while focused, and
-   inline error/valid iconography that springs in instead of red text
-   appearing abruptly.
-------------------------------------------------------------------------- */
 export function ChannelInputForm({ onSubmit, isPending }: Props) {
   const [focused, setFocused] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -186,17 +162,13 @@ export function ChannelInputForm({ onSubmit, isPending }: Props) {
   };
 
   return (
-    <form
-      onSubmit={handleSubmit(submit)}
-      className="flex flex-col items-start gap-3 sm:flex-row"
-    >
+    <form onSubmit={handleSubmit(submit)} className="flex flex-col items-start gap-3 sm:flex-row">
       <div className="w-full flex-1">
         <Label htmlFor="channel_url" className="sr-only">
           Channel URL
         </Label>
 
-        <div className="relative">
-          {/* Animated border-beam — only visible while focused */}
+        <div className="relative" data-magnetic>
           <AnimatePresence>
             {focused && !isPending && (
               <motion.div
@@ -205,10 +177,6 @@ export function ChannelInputForm({ onSubmit, isPending }: Props) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                style={{
-                  background:
-                    "conic-gradient(from 0deg, transparent, color-mix(in oklab, var(--color-primary) 70%, transparent), transparent 30%)",
-                }}
               >
                 <motion.div
                   className="absolute inset-0 rounded-xl"
@@ -223,7 +191,6 @@ export function ChannelInputForm({ onSubmit, isPending }: Props) {
             )}
           </AnimatePresence>
 
-          {/* Breathing ambient glow behind the field on focus */}
           <motion.div
             aria-hidden
             className="absolute -inset-3 rounded-2xl bg-primary/10 blur-xl"
@@ -258,7 +225,7 @@ export function ChannelInputForm({ onSubmit, isPending }: Props) {
                 placeholder="https://www.youtube.com/@channelname"
                 disabled={isPending}
                 onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
+                // onBlur={() => setFocused(false)}
                 autoComplete="off"
                 spellCheck={false}
                 className="h-full w-full bg-transparent text-[14.5px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
@@ -285,14 +252,14 @@ export function ChannelInputForm({ onSubmit, isPending }: Props) {
                       exit={{ scale: 0 }}
                       transition={{ type: "spring", stiffness: 500, damping: 18 }}
                     >
-                      <motion.svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-emerald-500">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-emerald-500">
                         <motion.path
                           d="M4 12l5 5L20 6"
                           initial={{ pathLength: 0 }}
                           animate={{ pathLength: 1 }}
                           transition={{ duration: 0.35 }}
                         />
-                      </motion.svg>
+                      </svg>
                     </motion.span>
                   ) : null}
                 </AnimatePresence>
@@ -307,7 +274,7 @@ export function ChannelInputForm({ onSubmit, isPending }: Props) {
               initial={{ opacity: 0, height: 0, y: -4 }}
               animate={{ opacity: 1, height: "auto", y: 0 }}
               exit={{ opacity: 0, height: 0, y: -4 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ type: "spring", stiffness: 400, damping: 30 }}
               className="mt-2 flex items-center gap-1.5 pl-1 text-[13px] text-red-500"
             >
               {errors.channel_url?.message}
