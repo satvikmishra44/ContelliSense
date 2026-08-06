@@ -1,22 +1,31 @@
 "use client";
 
 import { useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { motion, AnimatePresence, useMotionValue, useSpring } from "framer-motion";
-import { AlertCircle, ArrowRight, Link2, Loader2, Sparkles } from "lucide-react";
-import { Label } from "@/components/ui/label";
+import {
+  motion,
+  AnimatePresence,
+  useMotionValue,
+  useSpring,
+  useTransform,
+} from "motion/react";
+import { Loader2, ArrowRight, Command } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const schema = z.object({
   channel_url: z
     .string()
-    .min(1, "Channel URL is required")
-    .url("Enter a valid YouTube channel URL")
-    .refine((val) => val.includes("youtube.com"), {
-      message: "Must be a YouTube channel URL",
-    }),
+    .min(1, "Target parameter required.")
+    .url("Awaiting valid YouTube coordinate protocol.")
+    .refine(
+      (val) => val.includes("youtube.com") || val.includes("youtu.be"),
+      {
+        message: "Unrecognized platform protocol. Require YouTube link.",
+      }
+    ),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -26,264 +35,138 @@ interface Props {
   isPending: boolean;
 }
 
-/* -------------------------------------------------------------------------
-   MAGNETIC SUBMIT BUTTON
-   `data-magnetic` lets the global cursor in page.tsx detect this element.
-   Motion offset uses spring only — never a bezier array — so this file
-   can never hit the `Easing` TS error you kept running into.
-------------------------------------------------------------------------- */
-function MagneticSubmitButton({
-  isPending,
-  success,
-  disabled,
-}: {
-  isPending: boolean;
-  success: boolean;
-  disabled: boolean;
-}) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const springX = useSpring(x, { stiffness: 300, damping: 20, mass: 0.4 });
-  const springY = useSpring(y, { stiffness: 300, damping: 20, mass: 0.4 });
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    const el = ref.current;
-    if (!el || disabled) return;
-    const rect = el.getBoundingClientRect();
-    x.set((e.clientX - rect.left - rect.width / 2) * 0.3);
-    y.set((e.clientY - rect.top - rect.height / 2) * 0.5);
-  };
-
-  const handleMouseLeave = () => {
-    x.set(0);
-    y.set(0);
-  };
-
-  return (
-    <motion.button
-      ref={ref}
-      type="submit"
-      data-magnetic
-      disabled={disabled}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      style={{ x: springX, y: springY }}
-      whileTap={{ scale: 0.95 }}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-      className={cn(
-        "group relative flex h-[52px] shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl px-6 text-[14px] font-medium transition-colors duration-300",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-        success ? "bg-emerald-500 text-white" : "bg-primary text-primary-foreground",
-        disabled && !success && "cursor-not-allowed opacity-70"
-      )}
-    >
-      {!disabled && (
-        <motion.span
-          aria-hidden
-          className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent"
-          animate={{ x: ["-100%", "200%"] }}
-          transition={{ duration: 1.6, repeat: Infinity, ease: "linear", repeatDelay: 0.6 }}
-        />
-      )}
-
-      <span className="relative z-10 flex items-center gap-2 whitespace-nowrap">
-        <AnimatePresence mode="wait" initial={false}>
-          {success ? (
-            <motion.span
-              key="success"
-              className="flex items-center gap-2"
-              initial={{ opacity: 0, scale: 0.7 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.7 }}
-              transition={{ type: "spring", stiffness: 420, damping: 22 }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                <motion.path
-                  d="M4 12l5 5L20 6"
-                  initial={{ pathLength: 0 }}
-                  animate={{ pathLength: 1 }}
-                  transition={{ duration: 0.4 }}
-                />
-              </svg>
-              Launched
-            </motion.span>
-          ) : isPending ? (
-            <motion.span
-              key="loading"
-              className="flex items-center gap-2"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Analyzing
-            </motion.span>
-          ) : (
-            <motion.span
-              key="idle"
-              className="flex items-center gap-2"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Sparkles className="h-4 w-4 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
-              Run analysis
-              <ArrowRight className="h-3.5 w-3.5 -translate-x-1 opacity-0 transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100" />
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </span>
-    </motion.button>
-  );
-}
-
 export function ChannelInputForm({ onSubmit, isPending }: Props) {
   const [focused, setFocused] = useState(false);
   const [success, setSuccess] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+  const springX = useSpring(mouseX, { stiffness: 150, damping: 20 });
+  const springY = useSpring(mouseY, { stiffness: 150, damping: 20 });
+
+  const spotlightBackground = useTransform(
+    [springX, springY],
+    ([x, y]: number[]) =>
+      `radial-gradient(200px circle at ${x}px ${y}px, color-mix(in oklab, var(--color-primary) 10%, transparent), transparent)`
+  );
+
   const {
     register,
     handleSubmit,
-    watch,
-    formState: { errors, touchedFields },
+    formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { channel_url: "" },
-    mode: "onChange",
   });
 
-  const value = watch("channel_url");
-  const hasError = !!errors.channel_url;
-  const isValid = touchedFields.channel_url && !hasError && value?.length > 0;
+  const handleMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    mouseX.set(e.clientX - rect.left);
+    mouseY.set(e.clientY - rect.top);
+  };
 
   const submit = (values: FormValues) => {
     setSuccess(true);
     onSubmit(values.channel_url);
   };
 
-  return (
-    <form onSubmit={handleSubmit(submit)} className="flex flex-col items-start gap-3 sm:flex-row">
-      <div className="w-full flex-1">
-        <Label htmlFor="channel_url" className="sr-only">
-          Channel URL
-        </Label>
+  const hasError = !!errors.channel_url;
 
-        <div className="relative" data-magnetic>
-          <AnimatePresence>
-            {focused && !isPending && (
-              <motion.div
-                aria-hidden
-                className="absolute -inset-[1px] rounded-xl"
+  return (
+    <form onSubmit={handleSubmit(submit)} className="flex w-full max-w-2xl flex-col gap-2">
+      <div
+        ref={containerRef}
+        onMouseMove={handleMouseMove}
+        className={cn(
+          "group relative flex w-full flex-col items-center gap-2 sm:flex-row rounded-[1.25rem] border bg-card/50 p-2 shadow-sm backdrop-blur-xl transition-all duration-500",
+          focused
+            ? "border-primary/40 shadow-[0_0_30px_-5px_color-mix(in_oklab,var(--color-primary)_20%,transparent)]"
+            : "border-border/50",
+          hasError && "border-destructive/50"
+        )}
+      >
+        {/* Hover Highlight Effect simulating ambient light over glass */}
+        <motion.div
+          className="pointer-events-none absolute -inset-px rounded-[1.25rem] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+          style={{ background: spotlightBackground }}
+        />
+
+        <div className="relative flex w-full flex-1 items-center gap-3 px-4 py-3">
+          <Command
+            className={cn(
+              "h-4 w-4 shrink-0 transition-colors duration-300",
+              focused ? "text-primary" : "text-muted-foreground"
+            )}
+          />
+          <input
+            {...register("channel_url")}
+            disabled={isPending}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder="Assign target: https://www.youtube.com/@channel"
+            className="w-full bg-transparent text-[15px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
+            aria-invalid={hasError ? "true" : "false"}
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={isPending || success}
+          className="relative inline-flex h-11 w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-xl bg-foreground px-6 text-sm font-medium text-background transition-transform active:scale-95 sm:w-auto disabled:opacity-80"
+        >
+          <AnimatePresence mode="wait">
+            {isPending ? (
+              <motion.span
+                key="loading"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                className="flex items-center gap-2"
               >
-                <motion.div
-                  className="absolute inset-0 rounded-xl"
-                  style={{
-                    background:
-                      "conic-gradient(from 0deg, transparent, color-mix(in oklab, var(--color-primary) 70%, transparent), transparent 30%)",
-                  }}
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                />
-              </motion.div>
+                <Loader2 className="h-4 w-4 animate-spin" /> Executing
+              </motion.span>
+            ) : success ? (
+              <motion.span
+                key="success"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center gap-2"
+              >
+                Initiated
+              </motion.span>
+            ) : (
+              <motion.span
+                key="idle"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex items-center gap-2"
+              >
+                Deploy Agent <ArrowRight className="h-3.5 w-3.5" />
+              </motion.span>
             )}
           </AnimatePresence>
+        </button>
+      </div>
 
-          <motion.div
-            aria-hidden
-            className="absolute -inset-3 rounded-2xl bg-primary/10 blur-xl"
-            animate={{
-              opacity: focused ? [0.5, 0.9, 0.5] : 0,
-              scale: focused ? [1, 1.03, 1] : 0.95,
-            }}
-            transition={{ duration: 2.4, repeat: focused ? Infinity : 0, ease: "easeInOut" }}
-          />
-
-          <div className="relative rounded-xl bg-background p-[1.5px]">
-            <div
-              className={cn(
-                "relative flex h-[52px] items-center gap-2.5 rounded-[10px] border bg-card px-4 transition-colors duration-300",
-                hasError && touchedFields.channel_url
-                  ? "border-red-500/50"
-                  : isValid
-                  ? "border-emerald-500/40"
-                  : focused
-                  ? "border-primary/40"
-                  : "border-border/70"
-              )}
-            >
-              <Link2
-                className={cn(
-                  "h-4 w-4 shrink-0 transition-colors duration-300",
-                  focused ? "text-primary" : "text-muted-foreground/50"
-                )}
-              />
-              <input
-                id="channel_url"
-                placeholder="https://www.youtube.com/@channelname"
-                disabled={isPending}
-                onFocus={() => setFocused(true)}
-                // onBlur={() => setFocused(false)}
-                autoComplete="off"
-                spellCheck={false}
-                className="h-full w-full bg-transparent text-[14.5px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                {...register("channel_url")}
-              />
-
-              <div className="relative flex h-5 w-5 shrink-0 items-center justify-center">
-                <AnimatePresence mode="wait">
-                  {hasError && touchedFields.channel_url ? (
-                    <motion.span
-                      key="error-icon"
-                      initial={{ scale: 0, rotate: -90 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      exit={{ scale: 0 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                    >
-                      <AlertCircle className="h-4 w-4 text-red-500" />
-                    </motion.span>
-                  ) : isValid ? (
-                    <motion.span
-                      key="valid-icon"
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      exit={{ scale: 0 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 18 }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-emerald-500">
-                        <motion.path
-                          d="M4 12l5 5L20 6"
-                          initial={{ pathLength: 0 }}
-                          animate={{ pathLength: 1 }}
-                          transition={{ duration: 0.35 }}
-                        />
-                      </svg>
-                    </motion.span>
-                  ) : null}
-                </AnimatePresence>
-              </div>
-            </div>
-          </div>
-        </div>
-
+      <div className="h-6">
         <AnimatePresence>
-          {hasError && touchedFields.channel_url && (
+          {hasError && (
             <motion.p
-              initial={{ opacity: 0, height: 0, y: -4 }}
-              animate={{ opacity: 1, height: "auto", y: 0 }}
-              exit={{ opacity: 0, height: 0, y: -4 }}
-              transition={{ type: "spring", stiffness: 400, damping: 30 }}
-              className="mt-2 flex items-center gap-1.5 pl-1 text-[13px] text-red-500"
+              id="url-error"
+              initial={{ opacity: 0, y: -5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -5 }}
+              className="text-[13px] font-medium text-destructive ml-2"
+              role="alert"
             >
               {errors.channel_url?.message}
             </motion.p>
           )}
         </AnimatePresence>
       </div>
-
-      <MagneticSubmitButton isPending={isPending} success={success} disabled={isPending} />
     </form>
   );
 }
