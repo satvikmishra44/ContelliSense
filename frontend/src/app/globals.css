@@ -2,96 +2,131 @@
 @import url("https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@500,700,800&display=swap");
 @import "tailwindcss";
 
+/* Dark mode variant for Tailwind v4 */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Design tokens and theme mappings */
 @theme inline {
---color-border: oklch(var(--border));
---color-input: oklch(var(--input));
---color-ring: oklch(var(--ring));
---color-background: oklch(var(--background));
---color-foreground: oklch(var(--foreground));
---color-primary: oklch(var(--primary));
---color-primary-foreground: oklch(var(--primary-foreground));
---color-secondary: oklch(var(--secondary));
---color-secondary-foreground: oklch(var(--secondary-foreground));
---color-muted: oklch(var(--muted));
---color-muted-foreground: oklch(var(--muted-foreground));
---color-destructive: oklch(var(--destructive));
---color-destructive-foreground: oklch(var(--destructive-foreground));
---color-card: oklch(var(--card));
---color-card-foreground: oklch(var(--card-foreground));
+  --color-border: oklch(var(--border));
+  --color-input: oklch(var(--input));
+  --color-ring: oklch(var(--ring));
+  --color-background: oklch(var(--background));
+  --color-foreground: oklch(var(--foreground));
+  --color-primary: oklch(var(--primary));
+  --color-primary-foreground: oklch(var(--primary-foreground));
+  --color-secondary: oklch(var(--secondary));
+  --color-secondary-foreground: oklch(var(--secondary-foreground));
+  --color-muted: oklch(var(--muted));
+  --color-muted-foreground: oklch(var(--muted-foreground));
+  --color-destructive: oklch(var(--destructive));
+  --color-destructive-foreground: oklch(var(--destructive-foreground));
+  --color-card: oklch(var(--card));
+  --color-card-foreground: oklch(var(--card-foreground));
 
---radius-xl: calc(var(--radius) + 4px);
---radius-lg: var(--radius);
---radius-md: calc(var(--radius) - 2px);
---radius-sm: calc(var(--radius) - 4px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
 
---font-display: "Cabinet Grotesk", system-ui, sans-serif;
---font-body: "General Sans", system-ui, sans-serif;
+  --font-display: "Cabinet Grotesk", system-ui, sans-serif;
+  --font-body: "General Sans", system-ui, sans-serif;
 
---animate-shimmer: shimmer 2.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  --animate-shimmer: shimmer 2.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 
-@keyframes shimmer {
-0% { background-position: -200% 0; }
-100% { background-position: 200% 0; }
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
 }
-}
 
+/* Light theme tokens (OKLCH) */
 :root {
-/* Ultra-premium minimal light mode */
---background: 0.99 0.002 260;
---foreground: 0.15 0.01 260;
---card: 0.98 0.002 260;
---card-foreground: 0.15 0.01 260;
---primary: 0.15 0.01 260;
---primary-foreground: 0.99 0.002 260;
---secondary: 0.96 0.005 260;
---secondary-foreground: 0.25 0.01 260;
---muted: 0.96 0.005 260;
---muted-foreground: 0.45 0.01 260;
---destructive: 0.60 0.15 20;
---destructive-foreground: 0.99 0.002 260;
---border: 0.92 0.005 260;
---input: 0.92 0.005 260;
---ring: 0.15 0.01 260;
---radius: 0.75rem;
+  --background: 0.99 0.002 260;
+  --foreground: 0.15 0.01 260;
+
+  --card: 0.98 0.002 260;
+  --card-foreground: 0.15 0.01 260;
+
+  --primary: 0.15 0.01 260;
+  --primary-foreground: 0.99 0.002 260;
+
+  --secondary: 0.96 0.005 260;
+  --secondary-foreground: 0.25 0.01 260;
+
+  --muted: 0.96 0.005 260;
+  --muted-foreground: 0.45 0.01 260;
+
+  --destructive: 0.60 0.15 20;
+  --destructive-foreground: 0.99 0.002 260;
+
+  --border: 0.92 0.005 260;
+  --input: 0.92 0.005 260;
+  --ring: 0.15 0.01 260;
+
+  --radius: 0.75rem;
 }
 
+/* Dark theme tokens (OKLCH) */
 .dark {
-/* Cinematic dark mode with rigorous perceptual uniformity */
---background: 0.12 0.01 270;
---foreground: 0.98 0.005 270;
---card: 0.14 0.01 270;
---card-foreground: 0.98 0.005 270;
---primary: 0.98 0.005 270;
---primary-foreground: 0.12 0.01 270;
---secondary: 0.18 0.015 270;
---secondary-foreground: 0.98 0.005 270;
---muted: 0.18 0.015 270;
---muted-foreground: 0.65 0.01 270;
---destructive: 0.50 0.15 20;
---destructive-foreground: 0.98 0.005 270;
---border: 0.20 0.015 270;
---input: 0.20 0.015 270;
---ring: 0.98 0.005 270;
+  --background: 0.12 0.01 270;
+  --foreground: 0.98 0.005 270;
+
+  --card: 0.14 0.01 270;
+  --card-foreground: 0.98 0.005 270;
+
+  --primary: 0.98 0.005 270;
+  --primary-foreground: 0.12 0.01 270;
+
+  --secondary: 0.18 0.015 270;
+  --secondary-foreground: 0.98 0.005 270;
+
+  --muted: 0.18 0.015 270;
+  --muted-foreground: 0.65 0.01 270;
+
+  --destructive: 0.50 0.15 20;
+  --destructive-foreground: 0.98 0.005 270;
+
+  --border: 0.20 0.015 270;
+  --input: 0.20 0.015 270;
+  --ring: 0.98 0.005 270;
 }
 
+/* Extra utilities */
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Base typography + rendering */
 body {
-background-color: var(--color-background);
-color: var(--color-foreground);
-font-family: var(--font-body);
--webkit-font-smoothing: antialiased;
--moz-osx-font-smoothing: grayscale;
-text-rendering: optimizeLegibility;
-overscroll-behavior-y: none;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
 }
 
-h1, h2, h3, h4 {
-font-family: var(--font-display);
-letter-spacing: -0.02em;
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
 }
 
 /* Layer 2: Subtle Noise Primitive */
 .bg-noise {
-background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
