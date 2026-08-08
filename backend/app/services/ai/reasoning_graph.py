@@ -1,12 +1,14 @@
 import time
 import uuid
 from typing import List, TypedDict
+import json
 
 from sqlalchemy.orm import Session
 
 from app.core.logging_config import get_logger
 from app.db.models.analysis import Analysis
 from app.db.models.channel import Channel
+from app.db.models.trend import Trend
 from app.schemas.analysis import AnalysisCreateResponse
 from app.schemas.channel import ChannelOverviewResponse
 from app.schemas.recommendation import RecommendationResponse
@@ -26,6 +28,59 @@ class ReasoningOrchestrator:
     def __init__(self, db: Session) -> None:
         self.db = db
 
+    def _persist_google_trends(
+        self,
+        trends: List[TrendSignalResponse],
+    ) -> List[Trend]:
+        if not trends:
+            logger.warning("No Google Trends signals available to persist")
+            return []
+
+        trend_entities = [
+            Trend(
+                source=trend.source,
+                keyword=trend.keyword,
+                category=trend.category,
+                region=trend.region,
+                momentum_score=trend.momentum_score,
+                velocity_score=trend.velocity_score,
+                confidence_score=trend.confidence_score,
+                raw_payload=json.dumps(
+                    {
+                        "keyword": trend.keyword,
+                        "region": trend.region,
+                        "momentum_score": trend.momentum_score,
+                        "velocity_score": trend.velocity_score,
+                        "confidence_score": trend.confidence_score,
+                    }
+                ),
+            )
+            for trend in trends
+        ]
+
+        try:
+            self.db.add_all(trend_entities)
+            self.db.commit()
+
+            for trend_entity in trend_entities:
+                self.db.refresh(trend_entity)
+
+            logger.info(
+                "Google Trends persisted to database | count=%s ids=%s",
+                len(trend_entities),
+                [trend_entity.id for trend_entity in trend_entities],
+            )
+
+            return trend_entities
+
+        except Exception:
+            self.db.rollback()
+            logger.exception(
+                "Google Trends persistence failed | signals_count=%s",
+                len(trends),
+            )
+            raise
+        
     def run_full_analysis(self, channel_url: str) -> AnalysisCreateResponse:
         request_start = time.perf_counter()
         logger.info("Full analysis started | channel_url=%s", channel_url)
@@ -96,15 +151,38 @@ class ReasoningOrchestrator:
             logger.info("STEP 4 START | trend collection")
 
             trends_service = GoogleTrendsService()
+
             try:
                 trends = trends_service.fetch_trends_for_keywords(
                     keywords=niche_result["search_queries"],
                     region="IN",
                 )
-            except Exception:
-                logger.exception("Trend collection hard-failed; continuing with empty trends")
-                trends = []
 
+                logger.info(
+                    "Google Trends returned to orchestrator | count=%s data=%s",
+                    len(trends),
+                    [
+                        {
+                            "keyword": trend.keyword,
+                            "momentum_score": trend.momentum_score,
+                            "velocity_score": trend.velocity_score,
+                            "confidence_score": trend.confidence_score,
+                        }
+                        for trend in trends
+                    ],
+                )
+
+                persisted_trends = self._persist_google_trends(trends)
+
+                logger.info(
+                    "Google Trends fetch + persistence verified | fetched=%s persisted=%s",
+                    len(trends),
+                    len(persisted_trends),
+                )
+
+            except Exception:
+                logger.exception("Trend collection or persistence failed; continuing with empty trends")
+                trends = []
             logger.info(
                 "STEP 4 END | trend collection complete | trend_count=%s duration_ms=%s",
                 len(trends),
@@ -126,15 +204,29 @@ class ReasoningOrchestrator:
                 "STEP 5 END | rag context ready | context_count=%s duration_ms=%s",
                 len(rag_context),
                 round((time.perf_counter() - step_start) * 1000, 2),
-            )
+            )            
 
             # Step 6: Gemini generation.
             step_start = time.perf_counter()
             logger.info("STEP 6 START | gemini recommendation generation")
 
             trend_summary = "\n".join(
-                f"- {t.keyword}: momentum={t.momentum_score}, velocity={t.velocity_score}, confidence={t.confidence_score}"
+                f"- {t.keyword}: momentum={t.momentum_score}, "
+                f"velocity={t.velocity_score}, "
+                f"confidence={t.confidence_score}"
                 for t in trends
+            )
+
+            if not trend_summary:
+                trend_summary = (
+                    "No Google Trends data was available for this analysis. "
+                    "Do not claim a trend is rising unless supported by channel context."
+                )
+
+            logger.info(
+                "Trend summary passed to Gemini | trend_count=%s trend_summary=%r",
+                len(trends),
+                trend_summary,
             )
 
             gemini_client = GeminiClient()
